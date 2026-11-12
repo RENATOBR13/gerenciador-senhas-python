@@ -20,8 +20,8 @@ class PasswordManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Gerenciador de Senhas Seguro")
-        self.root.geometry("550x600")
-        self.root.minsize(500, 540)
+        self.root.geometry("660x680")
+        self.root.minsize(600, 600)
         
         self.vault_data = None
         self.master_password = None
@@ -153,37 +153,36 @@ class PasswordManagerApp:
                     fontSize=18,
                     textColor=colors.HexColor('#D9534F'),
                     spaceAfter=15,
-                    alignment=1  # Centralizado
+                    alignment=1
                 )
 
                 elements.append(Paragraph("Relatório de Credenciais - Cofre Seguro", title_style))
                 elements.append(Spacer(1, 10))
 
-                # Monta os dados para a tabela do PDF (Aviso: Contém senhas em texto plano para o relatório)
-                table_data = [["Site / Serviço", "Usuário / E-mail", "Senha"]]
+                table_data = [["Site / Serviço", "Usuário", "Senha", "Observações"]]
                 for site, creds in self.vault_data.items():
-                    table_data.append([site, creds["usuario"], creds["senha"]])
+                    obs = creds.get("observacao", "")
+                    table_data.append([site, creds["usuario"], creds["senha"], obs])
 
-                t = Table(table_data, colWidths=[150, 150, 150])
+                t = Table(table_data, colWidths=[150, 95, 95, 150])
                 t.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#D9534F')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                     ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F9F9F9')),
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                     ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 1), (-1, -1), 9),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
                     ('TOPPADDING', (0, 1), (-1, -1), 6),
                     ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
                 ]))
 
                 elements.append(t)
                 doc.build(elements)
-
-                messagebox.showinfo("Sucesso", "Relatório PDF gerado com sucesso!\nGuarde este arquivo em local extremamente seguro.")
+                messagebox.showinfo("Sucesso", "Relatório PDF gerado com sucesso!")
             except Exception as e:
                 messagebox.showerror("Erro", f"Falha ao gerar PDF: {e}")
 
@@ -358,57 +357,100 @@ class PasswordManagerApp:
         frame = ttk.Frame(self.root, padding=15)
         frame.pack(expand=True, fill="both")
         
-        ttk.Label(frame, text="Suas Senhas Armazenadas", font=("Arial", 14, "bold")).pack(pady=2)
-        ttk.Label(frame, text="Dica: Selecione um item na lista e clique em 'Copiar Senha'.", font=("Arial", 9, "italic")).pack(pady=2)
+        ttk.Label(frame, text="Suas Senhas Armazenadas", font=("Arial", 16, "bold")).pack(pady=3)
+        ttk.Label(frame, text="Dica: Selecione um item na lista e use os botões abaixo.", font=("Arial", 10, "italic")).pack(pady=3)
         
         search_frame = ttk.Frame(frame)
-        search_frame.pack(fill="x", pady=5)
-        ttk.Label(search_frame, text="Buscar:").pack(side="left", padx=5)
-        search_entry = ttk.Entry(search_frame, width=25)
+        search_frame.pack(fill="x", pady=8)
+        ttk.Label(search_frame, text="Buscar:", font=("Arial", 11)).pack(side="left", padx=5)
+        
+        search_entry = ttk.Entry(search_frame, width=30, font=("Arial", 11))
         search_entry.pack(side="left", padx=5)
         
-        columns = ("site", "usuario", "senha")
-        tree = ttk.Treeview(frame, columns=columns, show="headings", height=7)
+        self.style.configure("Treeview.Heading", font=("Arial", 11, "bold"))
+        self.style.configure("Treeview", font=("Arial", 11), rowheight=30)
+        
+        tree = ttk.Treeview(frame, columns=("site", "usuario", "senha", "observacao"), show="headings", height=8, style="Treeview")
+        self.style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])
+        
         tree.heading("site", text="Site / Serviço")
-        tree.heading("usuario", text="Usuário / E-mail")
+        tree.heading("usuario", text="Usuário")
         tree.heading("senha", text="Senha")
-        tree.column("site", width=130)
-        tree.column("usuario", width=130)
-        tree.column("senha", width=130)
+        tree.heading("observacao", text="Observações")
+        
+        tree.column("site", width=150, anchor="w")
+        tree.column("usuario", width=110, anchor="w")
+        tree.column("senha", width=110, anchor="w")
+        tree.column("observacao", width=150, anchor="w")
+        
         tree.pack(fill="both", expand=True, pady=5)
         
+        tree.tag_configure('par', background='#FFFFFF')
+        tree.tag_configure('impar', background='#F2F5F8')
+
+        self.revealed_items = set()
+
         def populate_tree(filter_text=""):
             self.start_idle_timer()
             for item in tree.get_children():
                 tree.delete(item)
+                
+            index = 0
             for site, creds in self.vault_data.items():
                 if filter_text.lower() in site.lower():
-                    masked_password = "•" * len(creds["senha"])
-                    tree.insert("", "end", values=(site, creds["usuario"], masked_password))
+                    if site in self.revealed_items:
+                        display_password = creds["senha"]
+                    else:
+                        display_password = "•" * len(creds["senha"])
+                    
+                    obs = creds.get("observacao", "")
+                    tag = 'par' if index % 2 == 0 else 'impar'
+                    tree.insert("", "end", values=(site, creds["usuario"], display_password, obs), iid=site, tags=(tag,))
+                    index += 1
 
         populate_tree()
         search_entry.bind("<KeyRelease>", lambda event: populate_tree(search_entry.get()))
         
+        def handle_toggle_reveal():
+            self.start_idle_timer()
+            selected_item = tree.selection()
+            if not selected_item:
+                messagebox.showwarning("Aviso", "Selecione um item da lista para mostrar/ocultar a senha.")
+                return
+            
+            site_name = selected_item[0]
+            if site_name in self.revealed_items:
+                self.revealed_items.remove(site_name)
+            else:
+                self.revealed_items.add(site_name)
+            
+            populate_tree(search_entry.get())
+
         def handle_copy_selected():
             self.start_idle_timer()
             selected_item = tree.selection()
             if not selected_item:
                 messagebox.showwarning("Aviso", "Selecione um item da lista para copiar a senha.")
                 return
-            item_values = tree.item(selected_item, "values")
-            site_name = item_values[0]
+            site_name = selected_item[0]
             real_password = self.vault_data[site_name]["senha"]
             self.copy_to_clipboard(real_password, site_name)
 
-        ttk.Button(frame, text="📋 Copiar Senha do Item Selecionado", command=handle_copy_selected).pack(pady=3)
+        btn_action_frame = ttk.Frame(frame)
+        btn_action_frame.pack(fill="x", pady=6)
+
+        btn_reveal = tk.Button(btn_action_frame, text="👁️ Mostrar / Ocultar Senha", font=("Arial", 10, "bold"), command=handle_toggle_reveal)
+        btn_reveal.pack(side="left", expand=True, fill="x", padx=3, ipady=3)
         
-        # --- BOTÃO VERMELHO DE EXPORTAR PARA PDF ---
+        btn_copy = tk.Button(btn_action_frame, text="📋 Copiar Senha", font=("Arial", 10, "bold"), command=handle_copy_selected)
+        btn_copy.pack(side="left", expand=True, fill="x", padx=3, ipady=3)
+        
         btn_pdf = tk.Button(
             frame, 
             text="📄 Exportar Relatório em PDF", 
             bg="#D9534F", 
             fg="white", 
-            font=("Arial", 10, "bold"), 
+            font=("Arial", 11, "bold"), 
             activebackground="#C9302C", 
             activeforeground="white",
             relief="raised",
@@ -416,9 +458,10 @@ class PasswordManagerApp:
             cursor="hand2",
             command=self.export_pdf_report
         )
-        btn_pdf.pack(fill="x", pady=4)
+        btn_pdf.pack(fill="x", pady=6, ipady=3)
 
-        ttk.Button(frame, text="Voltar ao Menu", command=self.show_main_menu).pack(pady=3)
+        btn_back = tk.Button(frame, text="Voltar ao Menu", font=("Arial", 10), command=self.show_main_menu)
+        btn_back.pack(fill="x", pady=2, ipady=2)
 
     # ==================== TELA DE ADICIONAR ====================
     def show_add_screen(self):
@@ -428,15 +471,15 @@ class PasswordManagerApp:
         frame = ttk.Frame(self.root, padding=20)
         frame.pack(expand=True, fill="both")
         
-        ttk.Label(frame, text="Adicionar Nova Senha", font=("Arial", 14, "bold")).pack(pady=10)
+        ttk.Label(frame, text="Adicionar Nova Senha", font=("Arial", 14, "bold")).pack(pady=5)
         
         ttk.Label(frame, text="Site / Serviço (ex: github.com):").pack(anchor="w")
         site_entry = ttk.Entry(frame, width=40, font=("Arial", 10))
-        site_entry.pack(pady=5)
+        site_entry.pack(pady=3)
         
         ttk.Label(frame, text="Usuário / E-mail:").pack(anchor="w")
         user_entry = ttk.Entry(frame, width=40, font=("Arial", 10))
-        user_entry.pack(pady=5)
+        user_entry.pack(pady=3)
         
         ttk.Label(frame, text="Senha:").pack(anchor="w")
         pwd_var = tk.StringVar()
@@ -461,23 +504,29 @@ class PasswordManagerApp:
                     pwd_var.set(pwd)
                     break
 
-        ttk.Button(frame, text="Gerar Senha Forte", command=generate_pwd).pack(pady=5)
+        ttk.Button(frame, text="Gerar Senha Forte", command=generate_pwd).pack(pady=3)
+        
+        ttk.Label(frame, text="Observações (opcional):").pack(anchor="w", pady=(3, 0))
+        obs_entry = ttk.Entry(frame, width=40, font=("Arial", 10))
+        obs_entry.pack(pady=3)
         
         def save_new():
             self.start_idle_timer()
             site = site_entry.get().strip()
             user = user_entry.get().strip()
             pwd = pwd_var.get().strip()
+            obs = obs_entry.get().strip()
+            
             if not site or not pwd:
                 messagebox.showerror("Erro", "Preencha o site e a senha!")
                 return
-            self.vault_data[site] = {"usuario": user, "senha": pwd}
+            self.vault_data[site] = {"usuario": user, "senha": pwd, "observacao": obs}
             self.save_current_vault()
             messagebox.showinfo("Sucesso", f"Credenciais de '{site}' salvas!")
             self.show_main_menu()
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.pack(pady=10)
+        btn_frame.pack(pady=8)
         ttk.Button(btn_frame, text="Salvar", command=save_new).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="Cancelar", command=self.show_main_menu).pack(side="left", padx=5)
 
@@ -522,7 +571,7 @@ class PasswordManagerApp:
             
             edit_win = tk.Toplevel(self.root)
             edit_win.title(f"Editar: {selected}")
-            edit_win.geometry("400x350")
+            edit_win.geometry("400x420")
             
             ef = ttk.Frame(edit_win, padding=15)
             ef.pack(expand=True, fill="both")
@@ -531,7 +580,7 @@ class PasswordManagerApp:
             
             ttk.Label(ef, text="Novo Usuário:").pack(anchor="w")
             u_entry = ttk.Entry(ef, width=35)
-            u_entry.pack(pady=5)
+            u_entry.pack(pady=3)
             u_entry.insert(0, self.vault_data[selected]["usuario"])
             
             ttk.Label(ef, text="Nova Senha:").pack(anchor="w")
@@ -543,16 +592,22 @@ class PasswordManagerApp:
             edit_strength_frame.pack(fill="x", pady=2)
             edit_lbl_strength = ttk.Label(edit_strength_frame, text="", font=("Arial", 9, "bold"))
             edit_lbl_strength.pack(anchor="w")
-            edit_progress_bar = ttk.Progressbar(edit_strength_frame, orient="horizontal", length=250, mode="determinate", maximum=100)
-            edit_progress_bar.pack(fill="x", pady=2)
+            progress_bar = ttk.Progressbar(edit_strength_frame, orient="horizontal", length=250, mode="determinate", maximum=100)
+            progress_bar.pack(fill="x", pady=2)
             
-            edit_pwd_var.trace_add("write", lambda *args: self.update_strength_indicator(edit_pwd_var.get(), edit_progress_bar, edit_lbl_strength))
-            self.update_strength_indicator(edit_pwd_var.get(), edit_progress_bar, edit_lbl_strength)
+            edit_pwd_var.trace_add("write", lambda *args: self.update_strength_indicator(edit_pwd_var.get(), progress_bar, edit_lbl_strength))
+            self.update_strength_indicator(edit_pwd_var.get(), progress_bar, edit_lbl_strength)
+
+            ttk.Label(ef, text="Nova Observação:").pack(anchor="w", pady=(3, 0))
+            obs_entry = ttk.Entry(ef, width=35)
+            obs_entry.pack(pady=3)
+            obs_entry.insert(0, self.vault_data[selected].get("observacao", ""))
 
             def save_edits():
                 self.start_idle_timer()
                 self.vault_data[selected]["usuario"] = u_entry.get().strip()
                 self.vault_data[selected]["senha"] = edit_pwd_var.get().strip()
+                self.vault_data[selected]["observacao"] = obs_entry.get().strip()
                 self.save_current_vault()
                 messagebox.showinfo("Sucesso", "Atualizado com sucesso!")
                 edit_win.destroy()
